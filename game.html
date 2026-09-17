@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Neji — a snake game</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Karla:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="game.css">
+</head>
+
+<body>
+    <main class="plot">
+        <header>
+            <div>
+                <h1>Neji</h1>
+                <p class="tagline">Creep across the soil, swallow the berries, and try not to grow into yourself.</p>
+            </div>
+            <div class="tally">
+                <div><span>picked</span><b id="score">0</b></div>
+                <div><span>best</span><b id="best">0</b></div>
+            </div>
+        </header>
+
+        <div class="stage">
+            <canvas id="board" aria-label="Snake game board"></canvas>
+            <div class="veil" id="veil">
+                <h2 id="veil-title">A bare patch of soil</h2>
+                <p id="veil-note">Arrow keys or W A S D to steer. Space pauses.</p>
+                <button id="veil-btn">Start growing</button>
+            </div>
+        </div>
+
+        <div class="pad" id="pad">
+            <button class="up" data-dir="up" aria-label="Move up">↑</button>
+            <button class="left" data-dir="left" aria-label="Move left">←</button>
+            <button class="down" data-dir="down" aria-label="Move down">↓</button>
+            <button class="right" data-dir="right" aria-label="Move right">→</button>
+        </div>
+
+        <p class="footnote">
+            <span class="keyhint">Steer with arrows or W A S D</span>
+            <span class="keyhint">Space to pause</span>
+            <span>Every berry makes the neji longer and quicker</span>
+        </p>
+    </main>
+
+    <script src="script.js"></script>
+    <script>
+        (function () {
+            "use strict";
+
+            var GRID = 20;          // cells per side
+            var CELL = 24;          // logical pixels per cell
+            var SIZE = GRID * CELL; // logical board size
+
+            var canvas = document.getElementById("board");
+            var ctx = canvas.getContext("2d");
+            var scoreEl = document.getElementById("score");
+            var bestEl = document.getElementById("best");
+            var veil = document.getElementById("veil");
+            var veilTitle = document.getElementById("veil-title");
+            var veilNote = document.getElementById("veil-note");
+            var veilBtn = document.getElementById("veil-btn");
+
+            var DIRS = {
+                up: { x: 0, y: -1 },
+                down: { x: 0, y: 1 },
+                left: { x: -1, y: 0 },
+                right: { x: 1, y: 0 }
+            };
+
+            var state = "idle";   // idle | play | paused | over
+            var snake, dir, queue, food, score, best, grew, oldTail;
+            var acc = 0, last = 0, scale = 1;
+
+            // --- colours are read from the stylesheet so the canvas follows the theme ---
+            var C = {};
+            function readColors() {
+                var s = getComputedStyle(document.documentElement);
+                ["plot", "plot-edge", "furrow", "vine", "vine-lit", "berry", "berry-lit", "seed"]
+                    .forEach(function (k) { C[k] = s.getPropertyValue("--" + k).trim(); });
+            }
+            readColors();
+            if (window.matchMedia) {
+                var mq = window.matchMedia("(prefers-color-scheme: dark)");
+                if (mq.addEventListener) mq.addEventListener("change", readColors);
+                else if (mq.addListener) mq.addListener(readColors);
+            }
+
+            // --- best score, kept per browser ---
+            try { best = parseInt(localStorage.getItem("vine.best"), 10) || 0; } catch (e) { best = 0; }
+            bestEl.textContent = best;
+
+            function saveBest() {
+                try { localStorage.setItem("vine.best", String(best)); } catch (e) { }
+            }
+
+            // --- sizing: fixed logical grid scaled to whatever the CSS box is ---
+            function resize() {
+                var dpr = Math.min(window.devicePixelRatio || 1, 2);
+                var w = Math.max(canvas.getBoundingClientRect().width, 1);
+                canvas.width = canvas.height = Math.round(w * dpr);
+                scale = canvas.width / SIZE;
+                draw(1);
+            }
+            window.addEventListener("resize", resize);
+
+            function reset() {
+                snake = [{ x: 9, y: 10 }, { x: 8, y: 10 }, { x: 7, y: 10 }];
+                dir = DIRS.right;
+                queue = [];
+                grew = false;
+                oldTail = { x: 6, y: 10 };
+                score = 0;
+                acc = 0;
+                scoreEl.textContent = "0";
+                plant();
+            }
+
+            // Pick a free cell for the next berry.
+            function plant() {
+                var free = [];
+                for (var y = 0; y < GRID; y++) {
+                    for (var x = 0; x < GRID; x++) {
+                        var taken = false;
+                        for (var i = 0; i < snake.length; i++) {
+                            if (snake[i].x === x && snake[i].y === y) { taken = true; break; }
+                        }
+                        if (!taken) free.push({ x: x, y: y });
+                    }
+                }
+                food = free.length ? free[Math.floor(Math.random() * free.length)] : null;
+            }
+
+            // Ticks get shorter as the score climbs, down to a floor of 70ms.
+            function tickMs() { return Math.max(70, 135 - score * 3); }
+
+            // Queue up to two turns so fast double-taps register.
+            function steer(name) {
+                var d = DIRS[name];
+                if (!d) return;
+                var ref = queue.length ? queue[queue.length - 1] : dir;
+                if (d.x === -ref.x && d.y === -ref.y) return; // no doubling back
+                if (d.x === ref.x && d.y === ref.y) return;   // already going that way
+                if (queue.length < 2) queue.push(d);
+            }
+
+            function step() {
+                if (queue.length) dir = queue.shift();
+
+                var head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+                if (head.x < 0 || head.y < 0 || head.x >= GRID || head.y >= GRID) return finish();
+
+                // The tail cell is about to move out of the way, so it isn't a collision.
+                var limit = snake.length - (grew ? 0 : 1);
+                for (var i = 0; i < limit; i++) {
+                    if (snake[i].x === head.x && snake[i].y === head.y) return finish();
+                }
+
+                snake.unshift(head);
+
+                if (food && head.x === food.x && head.y === food.y) {
+                    grew = true;
+                    score++;
+                    scoreEl.textContent = score;
+                    if (score > best) { best = score; bestEl.textContent = best; saveBest(); }
+                    plant();
+                } else {
+                    grew = false;
+                    oldTail = snake.pop();
+                }
+            }
+
+            function finish() {
+                state = "over";
+                veilTitle.textContent = score === 0 ? "Straight into the fence" : "The vine stopped here";
+                veilNote.textContent = score + (score === 1 ? " berry picked." : " berries picked.") +
+                    (score >= best && score > 0 ? " That's your best yet." : " Best so far: " + best + ".");
+                veilBtn.textContent = "Plant again";
+                veil.hidden = false;
+                veilBtn.focus();
+            }
+
+            // --- drawing ---
+            function cx(v) { return v * CELL + CELL / 2; }   // cell index to centre point
+            function lerp(a, b, t) { return a + (b - a) * t; }
+
+            function drawSoil() {
+                ctx.fillStyle = C.plot;
+                ctx.fillRect(0, 0, SIZE, SIZE);
+                ctx.fillStyle = C.furrow;
+                for (var y = 0; y < GRID; y++) {
+                    for (var x = (y % 2); x < GRID; x += 2) {
+                        ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+                    }
+                }
+            }
+
+            function drawBerry(time) {
+                if (!food) return;
+                var pulse = 1 + Math.sin(time / 320) * 0.05;
+                var x = cx(food.x), y = cx(food.y), r = CELL * 0.31 * pulse;
+
+                ctx.fillStyle = C.berry;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = C["berry-lit"];
+                ctx.beginPath();
+                ctx.arc(x - r * 0.3, y - r * 0.32, r * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = C.vine;
+                ctx.lineWidth = CELL * 0.1;
+                ctx.lineCap = "round";
+                ctx.beginPath();
+                ctx.moveTo(x, y - r * 0.85);
+                ctx.lineTo(x + r * 0.5, y - r * 1.5);
+                ctx.stroke();
+            }
+
+            // The body is one stroked path. The head slides from its previous cell into
+            // its current one and the tail retracts by the same fraction, so the snake
+            // glides instead of jumping a whole cell each tick.
+            function drawVine(t) {
+                var pts = [];
+                var prev = snake[1] || snake[0];
+                var hx = lerp(cx(prev.x), cx(snake[0].x), t);
+                var hy = lerp(cx(prev.y), cx(snake[0].y), t);
+                pts.push([hx, hy]);
+
+                for (var i = 1; i < snake.length; i++) pts.push([cx(snake[i].x), cx(snake[i].y)]);
+
+                if (!grew && oldTail) {
+                    var end = snake[snake.length - 1];
+                    pts.push([lerp(cx(oldTail.x), cx(end.x), t), lerp(cx(oldTail.y), cx(end.y), t)]);
+                }
+
+                ctx.lineJoin = "round";
+                ctx.lineCap = "round";
+
+                ctx.beginPath();
+                ctx.moveTo(pts[0][0], pts[0][1]);
+                for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j][0], pts[j][1]);
+
+                ctx.strokeStyle = state === "over" ? C.berry : C.vine;
+                ctx.lineWidth = CELL * 0.74;
+                ctx.stroke();
+
+                ctx.strokeStyle = state === "over" ? C["berry-lit"] : C["vine-lit"];
+                ctx.globalAlpha = 0.45;
+                ctx.lineWidth = CELL * 0.2;
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+
+                ctx.fillStyle = state === "over" ? C["berry-lit"] : C["vine-lit"];
+                ctx.beginPath();
+                ctx.arc(hx, hy, CELL * 0.4, 0, Math.PI * 2);
+                ctx.fill();
+
+                var px = -dir.y, py = dir.x;   // perpendicular to travel, for the eyes
+                ctx.fillStyle = C.seed;
+                [-1, 1].forEach(function (side) {
+                    ctx.beginPath();
+                    ctx.arc(hx + dir.x * CELL * 0.13 + px * side * CELL * 0.15,
+                        hy + dir.y * CELL * 0.13 + py * side * CELL * 0.15,
+                        CELL * 0.07, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+
+            function draw(t, time) {
+                ctx.setTransform(scale, 0, 0, scale, 0, 0);
+                drawSoil();
+                drawBerry(time || 0);
+                if (snake) drawVine(state === "play" ? t : 1);
+            }
+
+            function frame(now) {
+                var dt = Math.min(now - (last || now), 100);
+                last = now;
+
+                if (state === "play") {
+                    acc += dt;
+                    while (acc >= tickMs() && state === "play") {
+                        acc -= tickMs();
+                        step();
+                    }
+                }
+
+                draw(state === "play" ? Math.min(acc / tickMs(), 1) : 1, now);
+                requestAnimationFrame(frame);
+            }
+
+            // --- input ---
+            var KEYS = {
+                ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+                w: "up", s: "down", a: "left", d: "right"
+            };
+
+            document.addEventListener("keydown", function (e) {
+                var key = e.key;
+                var name = KEYS[key] || KEYS[String(key).toLowerCase()];
+
+                if (name) {
+                    e.preventDefault();
+                    if (state === "idle" || state === "over") begin();
+                    else if (state === "paused") resume();
+                    steer(name);
+                } else if (key === " " || key === "Spacebar") {
+                    e.preventDefault();
+                    if (state === "play") pause();
+                    else if (state === "paused") resume();
+                    else begin();
+                }
+            });
+
+            document.getElementById("pad").addEventListener("click", function (e) {
+                var btn = e.target.closest("button");
+                if (!btn) return;
+                if (state === "idle" || state === "over") begin();
+                else if (state === "paused") resume();
+                steer(btn.dataset.dir);
+            });
+
+            var touch = null;
+            canvas.addEventListener("pointerdown", function (e) {
+                touch = { x: e.clientX, y: e.clientY };
+            });
+            canvas.addEventListener("pointerup", function (e) {
+                if (!touch) return;
+                var dx = e.clientX - touch.x, dy = e.clientY - touch.y;
+                touch = null;
+                if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
+                if (state === "idle" || state === "over") begin();
+                else if (state === "paused") resume();
+                steer(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
+            });
+
+            veilBtn.addEventListener("click", function () {
+                if (state === "paused") resume(); else begin();
+            });
+
+            function begin() {
+                reset();
+                state = "play";
+                veil.hidden = true;
+            }
+
+            function pause() {
+                state = "paused";
+                veilTitle.textContent = "Resting in the shade";
+                veilNote.textContent = "Space or the button picks it back up.";
+                veilBtn.textContent = "Keep growing";
+                veil.hidden = false;
+            }
+
+            function resume() {
+                state = "play";
+                veil.hidden = true;
+            }
+
+            reset();
+            state = "idle";
+            resize();
+            requestAnimationFrame(frame);
+        })();
+    </script>
+</body>
+
+</html>

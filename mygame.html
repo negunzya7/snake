@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snake</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+</head>
+<style>
+    body {
+        /* margin: ; */
+    }
+
+    .board {
+        width: 200px;
+        height: 150px;
+        border: 1px solid gray;
+        background-color: aquamarine;
+        margin: 0 auto;
+        position: relative;
+
+    }
+
+    .player,
+    .star {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        font-size: 8px;
+        text-align: center;
+        position: absolute;
+    }
+</style>
+
+<body>
+    <div class="board">
+        <div id="player" class="player">👻</div>
+        <div id="star" class="star">😧</div>
+    </div>
+
+
+    <div style="display: flex;">
+        <button class="button is-black" onclick="moveLeft();">⬅️</button>
+        <div style="display: flex; flex-direction: column;">
+            <button class="button is-black" onclick="moveUp();">⬆️</button>
+            <button class="button is-black" onclick="moveDown();">⬇️</button>
+        </div>
+        <button class="button is-black" onclick="moveRight();">➡️</button>
+    </div>
+    <script>
+        let playerX = 0
+        let playerY = 0
+        let starX = 40
+        let starY = 50
+        const boardHeight = 150;
+        const boardWidth = 200;
+        const boardEl = document.getElementById("board")
+        const playerEl = document.getElementById("player")
+        const starEl = document.getElementById("star")
+        boardEl.style.width = `${boardWidth}px`
+        boardEl.style.height = `${boardHeight}px`
+        draw();
+        function moveUp() {
+            playerY = playerY - 10;
+            if (playerY < 0) {
+                playerY = boardHeight - 10;
+            }
+            draw()
+        }
+        function moveDown() {
+            playerY = playerY + 10;
+            if (playerY > boardHeight - 10) {
+                playerY = 0;
+            }
+            draw()
+        }
+        function moveLeft() {
+            playerX = playerX - 10;
+            if (playerX < 0) {
+                playerX = boardWidth - 10;
+            }
+            draw()
+        }
+        function moveRight() {
+            playerX = playerX + 10;
+            if (playerX > boardWidth - 10) {
+                playerX = 0;
+            }
+            draw()
+        }
+        function draw() {
+            playerEl.style.top = `${playerY}px`;
+            playerEl.style.left = `${playerX}px`;
+
+        }
+
+
+
+
+
+
+
+    </script>
+
+</body>
+
+</html>
