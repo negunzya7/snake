@@ -8,10 +8,6 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
 </head>
 <style>
-    body {
-        /* margin: ; */
-    }
-
     .board {
         width: 200px;
         height: 150px;
@@ -19,7 +15,6 @@
         background-color: aquamarine;
         margin: 0 auto;
         position: relative;
-
     }
 
     .player,
@@ -34,23 +29,23 @@
 </style>
 
 <body>
-    <div class="board">
+    <div id="score" class="score">0</div>
+    <div class="board" id="board">
         <div id="player" class="player">👻</div>
         <div id="star" class="star">😧</div>
     </div>
-
-
     <div style="display: flex;">
-        <button class="button is-black" onclick="moveLeft();">⬅️</button>
+        <button class="button is-black" onclick="moveLeft()">⬅️</button>
         <div style="display: flex; flex-direction: column;">
-            <button class="button is-black" onclick="moveUp();">⬆️</button>
-            <button class="button is-black" onclick="moveDown();">⬇️</button>
+            <button class="button is-black" onclick="moveUp()">⬆️</button>
+            <button class="button is-black" onclick="moveDown()">⬇️</button>
         </div>
-        <button class="button is-black" onclick="moveRight();">➡️</button>
+        <button class="button is-black" onclick="moveRight()">➡️</button>
     </div>
     <script>
-        let playerX = 0
-        let playerY = 0
+        let score = 0
+        let playerX = 10
+        let playerY = 20
         let starX = 40
         let starY = 50
         const boardHeight = 150;
@@ -92,17 +87,31 @@
         function draw() {
             playerEl.style.top = `${playerY}px`;
             playerEl.style.left = `${playerX}px`;
-
+            starEl.style.left = `${starX}px`;
+            starEl.style.top = `${starY}px`;
+            if (playerX == starX && playerY == starY) {
+                score++;
+                document.getElementById("score").textContent = score;
+                starX = getRandomInt(20) * 10
+                starY = getRandomInt(10) * 10
+                draw();
+            }
         }
-
-
-
-
-
-
-
+        document.addEventListener("keydown", function (event) {
+            if (event.code == "ArrowUp") {
+                moveUp();
+            } else if (event.code == "ArrowDown") {
+                moveDown();
+            } else if (event.code == "ArrowRight") {
+                moveRight();
+            } else if (event.code == "ArrowLeft") {
+                moveLeft();
+            }
+        });
+        function getRandomInt(max) {
+            return Math.floor(Math.random() * max);
+        }
     </script>
-
 </body>
 
 </html>
